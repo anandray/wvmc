@@ -13,20 +13,7 @@ pub trait EvmcVm {
     fn execute(&self, code: &[u8], context: &ExecutionContext) -> ExecutionResult;
 }
 
-/// EVMC message (call) kind.
-pub type MessageKind = ffi::evmc_call_kind;
-
-/// EVMC message (call) flags.
-pub type MessageFlags = ffi::evmc_flags;
-
-/// EVMC status code.
-pub type StatusCode = ffi::evmc_status_code;
-
-/// EVMC storage status.
-pub type StorageStatus = ffi::evmc_storage_status;
-
-/// EVMC VM revision.
-pub type Revision = ffi::evmc_revision;
+pub mod types;
 
 /// EVMC result structure.
 pub struct ExecutionResult {
