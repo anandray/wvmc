@@ -3,6 +3,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 #include <evmc/evmc.h>
+#include <evmc/helpers.h>
 #include <evmc/loader.h>
 #include <gtest/gtest.h>
 #include <cstring>
@@ -78,8 +79,8 @@ protected:
     /// Creates a VM mock with only destroy() method.
     static evmc_instance* create_vm_barebone()
     {
-        static auto instance =
-            evmc_instance{EVMC_ABI_VERSION, "", "", destroy, nullptr, nullptr, nullptr, nullptr};
+        static auto instance = evmc_instance{EVMC_ABI_VERSION, "vm_barebone", "",      destroy,
+                                             nullptr,          nullptr,       nullptr, nullptr};
         ++create_count;
         return &instance;
     }
@@ -98,8 +99,9 @@ protected:
     /// Creates a VM mock with optional set_option() method.
     static evmc_instance* create_vm_with_set_option() noexcept
     {
-        static auto instance =
-            evmc_instance{EVMC_ABI_VERSION, "", "", destroy, nullptr, nullptr, nullptr, set_option};
+        static auto instance = evmc_instance{
+            EVMC_ABI_VERSION, "vm_with_set_option", "", destroy, nullptr, nullptr, nullptr,
+            set_option};
         ++create_count;
         return &instance;
     }
@@ -327,4 +329,250 @@ TEST_F(loader, load_and_create_abi_mismatch)
     EXPECT_TRUE(vm == nullptr);
     EXPECT_EQ(evmc_last_error_msg(), expected_error_msg);
     EXPECT_EQ(destroy_count, create_count);
+}
+
+TEST_F(loader, load_and_configure_no_options)
+{
+    setup("path", "evmc_create", create_vm_with_set_option);
+
+    evmc_loader_error_code ec;
+    auto vm = evmc_load_and_configure("path", &ec);
+    EXPECT_TRUE(vm);
+    EXPECT_TRUE(recorded_options.empty());
+    EXPECT_EQ(ec, EVMC_LOADER_SUCCESS);
+
+    setup("path", "evmc_create", create_vm_barebone);
+
+    vm = evmc_load_and_configure("path,", &ec);
+    EXPECT_TRUE(vm);
+    EXPECT_TRUE(recorded_options.empty());
+    EXPECT_EQ(ec, EVMC_LOADER_SUCCESS);
+}
+
+TEST_F(loader, load_and_configure_single_option)
+{
+    supported_options["o"] = "1";
+    supported_options["O"] = "2";
+
+    setup("path", "evmc_create", create_vm_with_set_option);
+
+    evmc_loader_error_code ec;
+    auto vm = evmc_load_and_configure("path,o=1", &ec);
+    EXPECT_TRUE(vm);
+    ASSERT_EQ(recorded_options.size(), 1);
+    EXPECT_EQ(recorded_options[0].first, "o");
+    EXPECT_EQ(recorded_options[0].second, "1");
+    EXPECT_EQ(ec, EVMC_LOADER_SUCCESS);
+
+    recorded_options.clear();
+    vm = evmc_load_and_configure("path,O=2", &ec);
+    EXPECT_TRUE(vm);
+    ASSERT_EQ(recorded_options.size(), 1);
+    EXPECT_EQ(recorded_options[0].first, "O");
+    EXPECT_EQ(recorded_options[0].second, "2");
+    EXPECT_EQ(ec, EVMC_LOADER_SUCCESS);
+}
+
+TEST_F(loader, load_and_configure_uknown_option)
+{
+    supported_options["x"] = "1";
+
+    setup("path", "evmc_create", create_vm_with_set_option);
+
+    evmc_loader_error_code ec;
+    auto vm = evmc_load_and_configure("path,z=1", &ec);
+    EXPECT_FALSE(vm);
+    ASSERT_EQ(recorded_options.size(), 1);
+    EXPECT_EQ(recorded_options[0].first, "z");
+    EXPECT_EQ(recorded_options[0].second, "1");
+    EXPECT_EQ(ec, EVMC_LOADER_INVALID_OPTION_NAME);
+    EXPECT_STREQ(evmc_last_error_msg(), "vm_with_set_option (path): unknown option 'z'");
+    EXPECT_EQ(destroy_count, create_count);
+
+    recorded_options.clear();
+    vm = evmc_load_and_configure("path,x=2,", &ec);
+    EXPECT_FALSE(vm);
+    ASSERT_EQ(recorded_options.size(), 1);
+    EXPECT_EQ(recorded_options[0].first, "x");
+    EXPECT_EQ(recorded_options[0].second, "2");
+    EXPECT_EQ(ec, EVMC_LOADER_INVALID_OPTION_VALUE);
+    EXPECT_STREQ(evmc_last_error_msg(),
+                 "vm_with_set_option (path): unsupported value '2' for option 'x'");
+    EXPECT_EQ(destroy_count, create_count);
+}
+
+TEST_F(loader, load_and_configure_multiple_options)
+{
+    supported_options["a"] = "_a";
+    supported_options["b"] = "_b";
+    supported_options["c"] = "_c";
+
+    setup("path", "evmc_create", create_vm_with_set_option);
+
+    evmc_loader_error_code ec;
+    auto vm = evmc_load_and_configure("path,a=_a,b=_b,c=_c,b=_b", &ec);
+    EXPECT_TRUE(vm);
+    ASSERT_EQ(recorded_options.size(), 4);
+    EXPECT_EQ(recorded_options[0].first, "a");
+    EXPECT_EQ(recorded_options[0].second, "_a");
+    EXPECT_EQ(recorded_options[1].first, "b");
+    EXPECT_EQ(recorded_options[1].second, "_b");
+    EXPECT_EQ(recorded_options[2].first, "c");
+    EXPECT_EQ(recorded_options[2].second, "_c");
+    EXPECT_EQ(recorded_options[3].first, "b");
+    EXPECT_EQ(recorded_options[3].second, "_b");
+    EXPECT_EQ(ec, EVMC_LOADER_SUCCESS);
+
+    recorded_options.clear();
+    vm = evmc_load_and_configure("path,a=_a,b=_b,a=_a,", &ec);
+    EXPECT_TRUE(vm);
+    ASSERT_EQ(recorded_options.size(), 3);
+    EXPECT_EQ(recorded_options[0].first, "a");
+    EXPECT_EQ(recorded_options[0].second, "_a");
+    EXPECT_EQ(recorded_options[1].first, "b");
+    EXPECT_EQ(recorded_options[1].second, "_b");
+    EXPECT_EQ(recorded_options[2].first, "a");
+    EXPECT_EQ(recorded_options[2].second, "_a");
+    EXPECT_EQ(ec, EVMC_LOADER_SUCCESS);
+}
+
+TEST_F(loader, load_and_configure_uknown_option_in_sequence)
+{
+    supported_options["a"] = "_a";
+    supported_options["b"] = "_b";
+    supported_options["c"] = "_c";
+
+    setup("path", "evmc_create", create_vm_with_set_option);
+
+    evmc_loader_error_code ec;
+    auto vm = evmc_load_and_configure("path,a=_a,b=_b,c=_b,", &ec);
+    EXPECT_FALSE(vm);
+    ASSERT_EQ(recorded_options.size(), 3);
+    EXPECT_EQ(recorded_options[0].first, "a");
+    EXPECT_EQ(recorded_options[0].second, "_a");
+    EXPECT_EQ(recorded_options[1].first, "b");
+    EXPECT_EQ(recorded_options[1].second, "_b");
+    EXPECT_EQ(recorded_options[2].first, "c");
+    EXPECT_EQ(recorded_options[2].second, "_b");
+    EXPECT_EQ(ec, EVMC_LOADER_INVALID_OPTION_VALUE);
+    EXPECT_STREQ(evmc_last_error_msg(),
+                 "vm_with_set_option (path): unsupported value '_b' for option 'c'");
+    EXPECT_EQ(destroy_count, create_count);
+
+    recorded_options.clear();
+    vm = evmc_load_and_configure("path,a=_a,x=_b,c=_c", &ec);
+    EXPECT_FALSE(vm);
+    ASSERT_EQ(recorded_options.size(), 2);
+    EXPECT_EQ(recorded_options[0].first, "a");
+    EXPECT_EQ(recorded_options[0].second, "_a");
+    EXPECT_EQ(recorded_options[1].first, "x");
+    EXPECT_EQ(recorded_options[1].second, "_b");
+    EXPECT_EQ(ec, EVMC_LOADER_INVALID_OPTION_NAME);
+    EXPECT_STREQ(evmc_last_error_msg(), "vm_with_set_option (path): unknown option 'x'");
+    EXPECT_EQ(destroy_count, create_count);
+}
+
+TEST_F(loader, load_and_configure_degenerated_values)
+{
+    supported_options["flag"] = nullptr;  // No value expected.
+    supported_options["e"] = "";          // Empty value expected.
+    supported_options[""] = "xxx";        // Empty name.
+
+    setup("path", "evmc_create", create_vm_with_set_option);
+
+    evmc_loader_error_code ec;
+    auto vm = evmc_load_and_configure("path,flag,e=,=xxx", &ec);
+    EXPECT_TRUE(vm);
+    ASSERT_EQ(recorded_options.size(), 3);
+    EXPECT_EQ(recorded_options[0].first, "flag");
+    EXPECT_EQ(recorded_options[0].second, "<null>");
+    EXPECT_EQ(recorded_options[1].first, "e");
+    EXPECT_EQ(recorded_options[1].second, "");
+    EXPECT_EQ(recorded_options[2].first, "");
+    EXPECT_EQ(recorded_options[2].second, "xxx");
+    EXPECT_EQ(ec, EVMC_LOADER_SUCCESS);
+    EXPECT_EQ(create_count, 1);
+    EXPECT_EQ(destroy_count, 0);
+}
+
+TEST_F(loader, load_and_configure_degenerated_names)
+{
+    supported_options[""] = nullptr;  // Allows ,, option.
+
+    setup("path", "evmc_create", create_vm_with_set_option);
+
+    evmc_loader_error_code ec;
+    auto vm = evmc_load_and_configure("path,,,=,,", &ec);
+    EXPECT_FALSE(vm);
+    ASSERT_EQ(recorded_options.size(), 3);
+    EXPECT_EQ(recorded_options[0].first, "");
+    EXPECT_EQ(recorded_options[0].second, "<null>");
+    EXPECT_EQ(recorded_options[1].first, "");
+    EXPECT_EQ(recorded_options[1].second, "<null>");
+    EXPECT_EQ(recorded_options[2].first, "");
+    EXPECT_EQ(recorded_options[2].second, "");
+    EXPECT_EQ(ec, EVMC_LOADER_INVALID_OPTION_VALUE);
+    EXPECT_STREQ(evmc_last_error_msg(),
+                 "vm_with_set_option (path): unsupported value '' for option ''");
+    EXPECT_EQ(destroy_count, create_count);
+}
+
+TEST_F(loader, load_and_configure_vm_without_set_option)
+{
+    supported_options[""] = nullptr;  // Allows ,, option.
+
+    setup("path", "evmc_create", create_vm_barebone);
+
+    evmc_loader_error_code ec;
+    auto vm = evmc_load_and_configure("path,a=0,b=1", &ec);
+    EXPECT_FALSE(vm);
+    EXPECT_TRUE(recorded_options.empty());
+    EXPECT_EQ(ec, EVMC_LOADER_INVALID_OPTION_NAME);
+    EXPECT_STREQ(evmc_last_error_msg(), "vm_barebone (path) does not support any options");
+    EXPECT_EQ(destroy_count, create_count);
+
+    vm = evmc_load_and_configure("path,", &ec);
+    EXPECT_TRUE(vm);
+    EXPECT_TRUE(recorded_options.empty());
+    EXPECT_EQ(ec, EVMC_LOADER_SUCCESS);
+    EXPECT_EQ(evmc_last_error_msg(), nullptr);
+    evmc_destroy(vm);
+    EXPECT_EQ(destroy_count, create_count);
+
+    vm = evmc_load_and_configure("path,,", &ec);
+    EXPECT_FALSE(vm);
+    EXPECT_TRUE(recorded_options.empty());
+    EXPECT_EQ(ec, EVMC_LOADER_INVALID_OPTION_NAME);
+    EXPECT_STREQ(evmc_last_error_msg(), "vm_barebone (path) does not support any options");
+    EXPECT_EQ(destroy_count, create_count);
+}
+
+TEST_F(loader, load_and_configure_config_too_long)
+{
+    setup("path", "evmc_create", create_vm_barebone);
+
+    evmc_loader_error_code ec;
+    auto config = std::string{"path,"};
+    config.append(10000, 'x');
+    auto vm = evmc_load_and_configure(config.c_str(), &ec);
+    EXPECT_FALSE(vm);
+    EXPECT_TRUE(recorded_options.empty());
+    EXPECT_EQ(ec, EVMC_LOADER_INVALID_ARGUMENT);
+    EXPECT_STREQ(evmc_last_error_msg(),
+                 "invalid argument: configuration is too long (maximum allowed length is 4096)");
+    EXPECT_EQ(destroy_count, create_count);
+}
+
+TEST_F(loader, load_and_configure_error_not_wanted)
+{
+    setup("path", "evmc_create", create_vm_with_set_option);
+
+    auto vm = evmc_load_and_configure("path,f=1", nullptr);
+    EXPECT_FALSE(vm);
+    ASSERT_EQ(recorded_options.size(), 1);
+    EXPECT_EQ(recorded_options[0].first, "f");
+    EXPECT_EQ(recorded_options[0].second, "1");
+    EXPECT_EQ(destroy_count, create_count);
+    EXPECT_STREQ(evmc_last_error_msg(), "vm_with_set_option (path): unknown option 'f'");
+    EXPECT_EQ(evmc_last_error_msg(), nullptr);
 }

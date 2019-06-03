@@ -238,3 +238,90 @@ exit:
 
     return instance;
 }
+
+struct evmc_instance* evmc_load_and_configure(const char* config,
+                                              enum evmc_loader_error_code* error_code)
+{
+    enum evmc_loader_error_code ec = EVMC_LOADER_SUCCESS;
+    struct evmc_instance* instance = NULL;
+
+    char config_copy_buffer[PATH_MAX_LENGTH];
+    if (strcpy_sx(config_copy_buffer, sizeof(config_copy_buffer), config) != 0)
+    {
+        ec = set_error(EVMC_LOADER_INVALID_ARGUMENT,
+                       "invalid argument: configuration is too long (maximum allowed length is %d)",
+                       (int)sizeof(config_copy_buffer));
+        goto exit;
+    }
+
+    char* options = "";
+    char* path_sep = strchr(config_copy_buffer, ',');
+    if (path_sep)
+    {
+        *path_sep = '\0';
+        options = path_sep + 1;
+    }
+    const char* path = config_copy_buffer;
+
+    instance = evmc_load_and_create(path, error_code);
+    if (!instance)
+        return NULL;
+
+    if (instance->set_option == NULL && strlen(options) != 0)
+    {
+        ec = set_error(EVMC_LOADER_INVALID_OPTION_NAME, "%s (%s) does not support any options",
+                       instance->name, path);
+        goto exit;
+    }
+
+
+    while (strlen(options) != 0)  // TODO: Can be optimized as *options != 0 because MSVC sucks.
+    {
+        char* option = options;
+        char* opt_sep = strchr(options, ',');
+        if (opt_sep)
+        {
+            *opt_sep = '\0';
+            options = opt_sep + 1;
+        }
+        else
+            options = "";
+
+
+        char* kv_sep = strchr(option, '=');
+        const char* name = option;
+        char* value = NULL;
+        if (kv_sep)
+        {
+            *kv_sep = '\0';
+            value = kv_sep + 1;
+        }
+
+        enum evmc_set_option_result r = instance->set_option(instance, name, value);
+        switch (r)
+        {
+        case EVMC_SET_OPTION_SUCCESS:
+            break;
+        case EVMC_SET_OPTION_INVALID_NAME:
+            ec = set_error(EVMC_LOADER_INVALID_OPTION_NAME, "%s (%s): unknown option '%s'",
+                           instance->name, path, name);
+            goto exit;
+        case EVMC_SET_OPTION_INVALID_VALUE:
+            ec = set_error(EVMC_LOADER_INVALID_OPTION_VALUE,
+                           "%s (%s): unsupported value '%s' for option '%s'", instance->name, path,
+                           value, name);
+            goto exit;
+        }
+    }
+
+exit:
+    if (error_code)
+        *error_code = ec;
+
+    if (ec == EVMC_LOADER_SUCCESS)
+        return instance;
+
+    if (instance)
+        evmc_destroy(instance);
+    return NULL;
+}

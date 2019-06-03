@@ -40,7 +40,10 @@ enum evmc_loader_error_code
     EVMC_LOADER_INSTANCE_CREATION_FAILURE = 4,
 
     /** The ABI version of the VM instance has mismatched. */
-    EVMC_LOADER_ABI_VERSION_MISMATCH = 5
+    EVMC_LOADER_ABI_VERSION_MISMATCH = 5,
+
+    EVMC_LOADER_INVALID_OPTION_NAME = 6,
+    EVMC_LOADER_INVALID_OPTION_VALUE = 7
 };
 
 /**
@@ -110,6 +113,9 @@ evmc_create_fn evmc_load(const char* filename, enum evmc_loader_error_code* erro
  */
 struct evmc_instance* evmc_load_and_create(const char* filename,
                                            enum evmc_loader_error_code* error_code);
+
+struct evmc_instance* evmc_load_and_configure(const char* config,
+                                              enum evmc_loader_error_code* error_code);
 
 /**
  * Returns the human-readable message describing the most recent error
