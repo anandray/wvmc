@@ -3,6 +3,13 @@
  * Licensed under the Apache License, Version 2.0.
  */
 
+//! Rust bindings for EVMC (Ethereum Client-VM Connector API).
+//!
+//! # Example
+//! ```
+//! 
+//! ```
+
 mod container;
 
 pub use container::EvmcContainer;

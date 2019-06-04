@@ -368,6 +368,7 @@ fn build_execute_fn(names: &VMNameSet) -> proc_macro2::TokenStream {
             });
 
             let result = if result.is_err() {
+                // Consider a panic an internal error.
                 ::evmc_vm::ExecutionResult::new(::evmc_vm::ffi::evmc_status_code::EVMC_INTERNAL_ERROR, 0, None)
             } else {
                 result.unwrap()
