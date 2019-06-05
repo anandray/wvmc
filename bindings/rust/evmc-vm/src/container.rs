@@ -34,7 +34,7 @@ impl<T: EvmcVm + Sized> EvmcContainer<T> {
     }
 
     // TODO: Maybe this can just be done with the Deref<Target = T> trait.
-    pub fn execute(&self, code: &[u8], context: &ExecutionContext) -> ExecutionResult {
+    pub fn execute(&self, code: &[u8], context: &ExecutionContext) -> Result<ExecutionResult, ()> {
         self.vm.execute(code, context)
     }
 }

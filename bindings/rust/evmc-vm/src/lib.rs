@@ -10,7 +10,7 @@ pub use evmc_sys as ffi;
 
 pub trait EvmcVm {
     fn init() -> Self;
-    fn execute(&self, code: &[u8], context: &ExecutionContext) -> ExecutionResult;
+    fn execute(&self, code: &[u8], context: &ExecutionContext) -> Result<ExecutionResult, ()>;
 }
 
 /// EVMC result structure.
